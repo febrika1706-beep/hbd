@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nebula Birthday - Final Project</title>
+    <style>
+        body { margin: 0; background: #050505; overflow: hidden; font-family: sans-serif; }
+        canvas { display: block; }
+        #instruction {
+            position: absolute; bottom: 30px; width: 100%; text-align: center;
+            color: #5de4ff; font-size: 13px; letter-spacing: 4px; opacity: 0.6;
+            text-transform: uppercase; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="instruction">SENTUH PARTIKEL UNTUK INTERAKSI</div>
+    <canvas id="canvas1"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas1');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let particles = [];
+        let mouse = { x: null, y: null, radius: 110 }; // Radius interaksi mouse
+
+        window.addEventListener('mousemove', (e) => { mouse.x = e.x; mouse.y = e.y; });
+
+        class Particle {
+            constructor(x, y) {
+                // Posisi awal acak agar partikel 'meledak' ke target
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.baseX = x; // Koordinat target
+                this.baseY = y;
+                this.size = Math.random() * 2 + 1.2; // Sedikit lebih besar untuk efek glowing
+                this.baseSize = this.size;
+                this.color = '#5de4ff'; // Warna biru cyan neon
+                this.density = (Math.random() * 30) + 15; // Kecepatan gerak acak
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                // PENDIARAN (GLOWING): Kunci efek elegan
+                ctx.shadowBlur = 12; // Lebih kuat untuk efek 'asap/debu'
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            update() {
+                // Pergerakan menuju koordinat target
+                let dx = this.baseX - this.x;
+                let dy = this.baseY - this.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
+                let forceX = dx / 15;
+                let forceY = dy / 15;
+
+                // Interaksi Mouse (Buyar saat disentuh)
+                let mdx = mouse.x - this.x;
+                let mdy = mouse.y - this.y;
+                let mDistance = Math.sqrt(mdx * mdx + mdy * mdy);
+
+                if (mDistance < mouse.radius) {
+                    let mForceX = mdx / mDistance;
+                    let mForceY = mdy / mDistance;
+                    let power = (mouse.radius - mDistance) / mouse.radius;
+                    this.x -= mForceX * power * 10; // Lebih buyar
+                    this.y -= mForceY * power * 10;
+                    this.size = this.baseSize * 2; // Membesar saat disentuh
+                } else {
+                    this.x += forceX;
+                    this.y += forceY;
+                    this.size = this.baseSize; // Kembali ke ukuran semula
+                }
+            }
+        }
+
+        // Fungsi menggambar kedua bentuk di kanvas tersembunyi untuk discan
+        function getMergedCoordinates() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // 1. MENGGAMBAR KUE (SISI KIRI)
+            const cx = w * 0.25; // Center point Kue (25% lebar layar)
+            const cy = h / 2 + 50;
+            ctx.fillRect(cx - 100, cy - 60, 200, 80); // Layer bawah
+            ctx.fillRect(cx - 70, cy - 120, 140, 60); // Layer atas
+            ctx.fillRect(cx - 5, cy - 150, 10, 30);  // Lilin
+            ctx.beginPath(); // Api lilin
+            ctx.arc(cx, cy - 165, 10, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 2. MENGGAMBAR TEKS (SISI KANAN)
+            ctx.font = 'bold 90px Arial';
+            ctx.fillText("HAPPY", w * 0.70, h / 2 - 30); // Teks (70% lebar layar)
+            ctx.fillText("BIRTHDAY", w * 0.70, h / 2 + 60);
+
+            // 3. MEMINDAI (SCANNING) PIKSEL
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Bersihkan kanvas
+
+            let coords = [];
+            for (let y = 0; y < data.height; y += 6) { // Kerapatan partikel tinggi (lompat 6 piksel)
+                for (let x = 0; x < data.width; x += 6) {
+                    if (data.data[(y * 4 * data.width) + (x * 4) + 3] > 128) { // Jika piksel berwarna putih
+                        coords.push({ x: x, y: y });
+                    }
+                }
+            }
+            return coords;
+        }
+
+        function init() {
+            particles = [];
+            let mergedCoords = getMergedCoordinates();
+            for (let i = 0; i < mergedCoords.length; i++) {
+                particles.push(new Particle(mergedCoords[i].x, mergedCoords[i].y));
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => {
+                p.draw();
+                p.update();
+            });
+            requestAnimationFrame(animate);
+        }
+
+        init();
+        animate();
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            init(); // Re-init agar koordinat menyesuaikan layar baru
+        });
+    </script>
+</body>
+</html>
