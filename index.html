@@ -3,146 +3,286 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nebula Birthday - Final Project</title>
+    <title>For Sella Cahya - Evolution Systems</title>
     <style>
-        body { margin: 0; background: #050505; overflow: hidden; font-family: sans-serif; }
-        canvas { display: block; }
-        #instruction {
-            position: absolute; bottom: 30px; width: 100%; text-align: center;
-            color: #5de4ff; font-size: 13px; letter-spacing: 4px; opacity: 0.6;
-            text-transform: uppercase; pointer-events: none;
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Arial', sans-serif; color: #fff; }
+        canvas { display: block; filter: contrast(120%) brightness(110%); }
+
+        /* LAYER 1: MATRIX INTRO */
+        #matrix-layer { 
+            position: absolute; inset: 0; background: black; z-index: 200; 
+            display: none; flex-direction: column; align-items: center; justify-content: center;
         }
+        #matrix-canvas { position: absolute; inset: 0; }
+        #matrix-text { 
+            position: relative; z-index: 210; font-size: 4rem; font-family: 'Courier New', monospace;
+            font-weight: bold; text-shadow: 0 0 30px #ff3366; text-align: center; color: #ff3366;
+        }
+
+        /* LAYER 2: ROTATING RINGS */
+        #rings-container {
+            position: absolute; width: 100%; height: 100%;
+            perspective: 1000px; display: none; align-items: center; justify-content: center;
+            pointer-events: none; z-index: 105; top: 15%;
+        }
+        .ring {
+            position: absolute; border-radius: 50%; border: 1px solid rgba(255, 51, 102, 0.1);
+            transform-style: preserve-3d; animation: rotateRing linear infinite;
+        }
+        .ring span {
+            position: absolute; top: 50%; left: 50%;
+            transform-origin: 0 0; color: #ff3366; font-weight: bold;
+            text-shadow: 0 0 10px #ff3366; white-space: nowrap; font-family: monospace; font-size: 14px;
+        }
+
+        @keyframes rotateRing {
+            from { transform: rotateX(75deg) rotateZ(0deg); }
+            to { transform: rotateX(75deg) rotateZ(360deg); }
+        }
+
+        #ui-wrapper { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; pointer-events: none; }
+        #gift-box { width: 100px; height: 100px; background: #ff3366; position: relative; cursor: pointer; pointer-events: auto; box-shadow: 0 0 40px rgba(255,51,102,0.6); border-radius: 8px; animation: float 3s infinite ease-in-out; }
+        #gift-box::before { content: ''; position: absolute; width: 100%; height: 15px; background: #ffd700; top: 42%; }
+        #gift-box::after { content: ''; position: absolute; width: 15px; height: 100%; background: #ffd700; left: 42%; }
+        
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
+        #status-overlay { position: absolute; top: 20px; left: 20px; font-size: 10px; color: #00ff88; text-transform: uppercase; letter-spacing: 2px; z-index: 150; }
+        #calibration { position: absolute; top: 20px; right: 20px; width: 120px; height: 90px; border: 1px solid #333; background: #000; display: none; border-radius: 8px; overflow: hidden; z-index: 150; }
+        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0.4; }
     </style>
 </head>
 <body>
-    <div id="instruction">SENTUH PARTIKEL UNTUK INTERAKSI</div>
-    <canvas id="canvas1"></canvas>
+
+    <div id="status-overlay">System: Ready<br>Target: Sella Cahya</div>
+    <div id="calibration"><video id="webcam" autoplay playsinline></video></div>
+
+    <div id="matrix-layer">
+        <canvas id="matrix-canvas"></canvas>
+        <div id="matrix-text"></div>
+    </div>
+
+    <div id="rings-container">
+        <div class="ring" id="ring-outer" style="width: 550px; height: 550px; animation-duration: 18s;"></div>
+        <div class="ring" id="ring-mid" style="width: 400px; height: 400px; animation-duration: 12s; animation-direction: reverse;"></div>
+        <div class="ring" id="ring-inner" style="width: 250px; height: 250px; animation-duration: 8s;"></div>
+    </div>
+
+    <div id="ui-wrapper">
+        <div id="gift-box" onclick="startSequence()"></div>
+        <div style="margin-top:20px; color:#666;" id="hint">Sentuh kado ini, Sella...</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
     <script>
-        const canvas = document.getElementById('canvas1');
-        const ctx = canvas.getContext('2d');
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        let scene, camera, renderer, particles;
+        let handX = 0, handY = 0, targetHandX = 0, targetHandY = 0;
+        let particleCount = 20000;
+        let positions, targetPositions;
+        let isGrasping = false, isPinching = false, isOpen = true;
+        let currentShape = 'random';
+        let matrixInterval;
+        
+        const bgMusic = new Audio("https://www.mboxdrive.com/The%201975%20-%20About%20You.mp3");
+        bgMusic.loop = true;
 
-        let particles = [];
-        let mouse = { x: null, y: null, radius: 110 }; // Radius interaksi mouse
-
-        window.addEventListener('mousemove', (e) => { mouse.x = e.x; mouse.y = e.y; });
-
-        class Particle {
-            constructor(x, y) {
-                // Posisi awal acak agar partikel 'meledak' ke target
-                this.x = Math.random() * canvas.width;
-                this.y = Math.random() * canvas.height;
-                this.baseX = x; // Koordinat target
-                this.baseY = y;
-                this.size = Math.random() * 2 + 1.2; // Sedikit lebih besar untuk efek glowing
-                this.baseSize = this.size;
-                this.color = '#5de4ff'; // Warna biru cyan neon
-                this.density = (Math.random() * 30) + 15; // Kecepatan gerak acak
-            }
-
-            draw() {
-                ctx.fillStyle = this.color;
-                // PENDIARAN (GLOWING): Kunci efek elegan
-                ctx.shadowBlur = 12; // Lebih kuat untuk efek 'asap/debu'
-                ctx.shadowColor = this.color;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            update() {
-                // Pergerakan menuju koordinat target
-                let dx = this.baseX - this.x;
-                let dy = this.baseY - this.y;
-                let distance = Math.sqrt(dx * dx + dy * dy);
-                let forceX = dx / 15;
-                let forceY = dy / 15;
-
-                // Interaksi Mouse (Buyar saat disentuh)
-                let mdx = mouse.x - this.x;
-                let mdy = mouse.y - this.y;
-                let mDistance = Math.sqrt(mdx * mdx + mdy * mdy);
-
-                if (mDistance < mouse.radius) {
-                    let mForceX = mdx / mDistance;
-                    let mForceY = mdy / mDistance;
-                    let power = (mouse.radius - mDistance) / mouse.radius;
-                    this.x -= mForceX * power * 10; // Lebih buyar
-                    this.y -= mForceY * power * 10;
-                    this.size = this.baseSize * 2; // Membesar saat disentuh
-                } else {
-                    this.x += forceX;
-                    this.y += forceY;
-                    this.size = this.baseSize; // Kembali ke ukuran semula
-                }
+        function createTextRing(id, text, radius) {
+            const el = document.getElementById(id);
+            const count = 8;
+            for(let i=0; i<count; i++) {
+                const span = document.createElement('span');
+                span.innerText = text;
+                const angle = (i / count) * Math.PI * 2;
+                const x = Math.cos(angle) * radius;
+                const y = Math.sin(angle) * radius;
+                span.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px) rotate(${angle + Math.PI/2}rad) rotateX(-90deg)`;
+                el.appendChild(span);
             }
         }
 
-        // Fungsi menggambar kedua bentuk di kanvas tersembunyi untuk discan
-        function getMergedCoordinates() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = 'white';
-            ctx.textAlign = 'center';
+        function runMatrixRain() {
+            const canvas = document.getElementById('matrix-canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+            const chars = "ｱｲｳｴｵｶｷｸｹｺ0123456789$+-*/";
+            const fontSize = 16;
+            const columns = canvas.width / fontSize;
+            const drops = Array(Math.floor(columns)).fill(1);
+            function draw() {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#ff3366";
+                ctx.font = fontSize + "px monospace";
+                for (let i = 0; i < drops.length; i++) {
+                    const text = chars.charAt(Math.floor(Math.random() * chars.length));
+                    ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+                    if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                    drops[i]++;
+                }
+            }
+            matrixInterval = setInterval(draw, 33);
+        }
 
-            const w = canvas.width;
-            const h = canvas.height;
+        async function startSequence() {
+            bgMusic.play();
+            document.getElementById('gift-box').style.display = 'none';
+            document.getElementById('hint').style.display = 'none';
+            const matrixLayer = document.getElementById('matrix-layer');
+            const matrixText = document.getElementById('matrix-text');
+            matrixLayer.style.display = 'flex';
+            runMatrixRain();
 
-            // 1. MENGGAMBAR KUE (SISI KIRI)
-            const cx = w * 0.25; // Center point Kue (25% lebar layar)
-            const cy = h / 2 + 50;
-            ctx.fillRect(cx - 100, cy - 60, 200, 80); // Layer bawah
-            ctx.fillRect(cx - 70, cy - 120, 140, 60); // Layer atas
-            ctx.fillRect(cx - 5, cy - 150, 10, 30);  // Lilin
-            ctx.beginPath(); // Api lilin
-            ctx.arc(cx, cy - 165, 10, 0, Math.PI * 2);
-            ctx.fill();
+            const steps = ["3", "2", "1", "HAPPY", "BIRTHDAY", "TO", "SELLA CAHYA"];
+            for (let word of steps) {
+                matrixText.innerText = word;
+                await new Promise(r => setTimeout(r, 850));
+            }
 
-            // 2. MENGGAMBAR TEKS (SISI KANAN)
-            ctx.font = 'bold 90px Arial';
-            ctx.fillText("HAPPY", w * 0.70, h / 2 - 30); // Teks (70% lebar layar)
-            ctx.fillText("BIRTHDAY", w * 0.70, h / 2 + 60);
+            clearInterval(matrixInterval);
+            gsap.to(matrixLayer, { opacity: 0, duration: 1.5, onComplete: () => {
+                matrixLayer.style.display = 'none';
+                startAetherCore();
+            }});
+        }
 
-            // 3. MEMINDAI (SCANNING) PIKSEL
-            const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            ctx.clearRect(0, 0, canvas.width, canvas.height); // Bersihkan kanvas
+        function startAetherCore() {
+            document.getElementById('calibration').style.display = 'block';
+            initThree();
+            setupMediaPipe();
+            
+            createTextRing('ring-outer', 'HAPPY BIRTHDAY ', 275);
+            createTextRing('ring-mid', 'SELLA CAHYA ', 200);
+            createTextRing('ring-inner', 'SYSTEM ANALYSIS: KE 24 ', 125);
 
-            let coords = [];
-            for (let y = 0; y < data.height; y += 6) { // Kerapatan partikel tinggi (lompat 6 piksel)
-                for (let x = 0; x < data.width; x += 6) {
-                    if (data.data[(y * 4 * data.width) + (x * 4) + 3] > 128) { // Jika piksel berwarna putih
-                        coords.push({ x: x, y: y });
+            setTimeout(() => morphTo('planet'), 2000);
+            setTimeout(() => morphTo('rose'), 9000);   
+            setTimeout(() => morphTo('heart_original'), 16000); // Tahap 1: Hati Lama
+            setTimeout(() => {
+                morphTo('heart_3d'); // Tahap 2: Hati 3D Video
+                const rings = document.getElementById('rings-container');
+                rings.style.display = 'flex';
+                gsap.fromTo(rings, { opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1, duration: 3 });
+            }, 21000);
+        }
+
+        function initThree() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 6;
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.body.appendChild(renderer.domElement);
+
+            const geometry = new THREE.BufferGeometry();
+            positions = new Float32Array(particleCount * 3);
+            targetPositions = new Float32Array(particleCount * 3);
+            for (let i = 0; i < particleCount * 3; i++) {
+                positions[i] = (Math.random() - 0.5) * 20;
+                targetPositions[i] = positions[i];
+            }
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const material = new THREE.PointsMaterial({
+                size: 0.035, color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+            });
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+            animate();
+        }
+
+        function morphTo(shape) {
+            currentShape = shape;
+            let color = 0xffffff;
+            for (let i = 0; i < particleCount; i++) {
+                const idx = i * 3;
+                let tx, ty, tz;
+
+                if (shape === 'rose') {
+                    const k = 6; const t = Math.random() * Math.PI * 2;
+                    const r = 2.8 * Math.sin(k * t) * Math.random();
+                    tx = r * Math.cos(t); ty = r * Math.sin(t); tz = (Math.random() - 0.5) * 1.5 + (r * 0.4);
+                    color = 0xff0044; 
+                } 
+                else if (shape === 'heart_original') { // LOGIKA ASLI ANDA
+                    const t = Math.random() * Math.PI * 2;
+                    tx = 1.6 * Math.pow(Math.sin(t), 3);
+                    ty = (1.3 * Math.cos(t) - 0.5 * Math.cos(2*t) - 0.2 * Math.cos(3*t) - 0.1 * Math.cos(4*t));
+                    tz = (Math.random() - 0.5) * 0.2; 
+                    color = 0xff33aa;
+                }
+                else if (shape === 'heart_3d') { // LOGIKA 3D VIDEO
+                    const t = Math.random() * Math.PI * 2;
+                    const r = Math.sqrt(Math.random()); // Distribusi ke dalam (volume)
+                    tx = r * (1.6 * Math.pow(Math.sin(t), 3));
+                    ty = r * (1.3 * Math.cos(t) - 0.5 * Math.cos(2*t) - 0.2 * Math.cos(3*t) - 0.1 * Math.cos(4*t));
+                    tz = (Math.random() - 0.5) * 1.2; // Kedalaman Sumbu Z Tebal
+                    color = 0xff1166;
+                }
+                else if (shape === 'planet') {
+                    if (i < particleCount * 0.8) {
+                        const radius = 2.2; const theta = Math.random() * Math.PI * 2;
+                        const phi = Math.acos((Math.random() * 2) - 1);
+                        tx = radius * Math.sin(phi) * Math.cos(theta);
+                        ty = radius * Math.sin(phi) * Math.sin(theta);
+                        tz = radius * Math.cos(phi);
+                    } else {
+                        const r_ring = 3.6 + Math.random() * 0.8;
+                        const t_ring = Math.random() * Math.PI * 2;
+                        let rx = r_ring * Math.cos(t_ring); let ry = (Math.random() - 0.5) * 0.12; let rz = r_ring * Math.sin(t_ring);
+                        const angle = 0.45; 
+                        tx = rx; ty = ry * Math.cos(angle) - rz * Math.sin(angle); tz = ry * Math.sin(angle) + rz * Math.cos(angle);
                     }
+                    color = 0x00ccff;
                 }
+                targetPositions[idx] = tx; targetPositions[idx+1] = ty; targetPositions[idx+2] = tz;
             }
-            return coords;
+            gsap.to(particles.material.color, { r: (color >> 16 & 255) / 255, g: (color >> 8 & 255) / 255, b: (color & 255) / 255, duration: 2 });
         }
 
-        function init() {
-            particles = [];
-            let mergedCoords = getMergedCoordinates();
-            for (let i = 0; i < mergedCoords.length; i++) {
-                particles.push(new Particle(mergedCoords[i].x, mergedCoords[i].y));
-            }
+        async function setupMediaPipe() {
+            const videoElement = document.getElementById('webcam');
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+            hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6 });
+            hands.onResults(results => {
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const lm = results.multiHandLandmarks[0];
+                    targetHandX = (lm[8].x - 0.5) * 12; targetHandY = -(lm[8].y - 0.5) * 12;
+                    isPinching = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y) < 0.06;
+                    isGrasping = Math.hypot(lm[12].x - lm[0].x, lm[12].y - lm[0].y) < 0.22;
+                    isOpen = !isGrasping && !isPinching;
+                    if (isGrasping) morphTo('planet'); else if (isPinching) morphTo('rose');
+                }
+            });
+            const cameraTrack = new Camera(videoElement, { onFrame: async () => { await hands.send({image: videoElement}); }, width: 640, height: 480 });
+            cameraTrack.start();
         }
 
         function animate() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            particles.forEach(p => {
-                p.draw();
-                p.update();
-            });
             requestAnimationFrame(animate);
+            handX += (targetHandX - handX) * 0.1;
+            handY += (targetHandY - handY) * 0.1;
+            const posAttr = particles.geometry.attributes.position;
+            for (let i = 0; i < particleCount; i++) {
+                const idx = i * 3;
+                positions[idx] += (targetPositions[idx] - positions[idx]) * 0.03;
+                positions[idx+1] += (targetPositions[idx+1] - positions[idx+1]) * 0.03;
+                positions[idx+2] += (targetPositions[idx+2] - positions[idx+2]) * 0.03;
+                if (isOpen) {
+                    const dx = handX - positions[idx], dy = handY - positions[idx+1];
+                    if(Math.sqrt(dx*dx + dy*dy) < 1.5) { positions[idx] -= dx * 0.02; positions[idx+1] -= dy * 0.02; }
+                }
+            }
+            posAttr.needsUpdate = true;
+            renderer.render(scene, camera);
         }
 
-        init();
-        animate();
-
         window.addEventListener('resize', () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            init(); // Re-init agar koordinat menyesuaikan layar baru
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         });
     </script>
 </body>
